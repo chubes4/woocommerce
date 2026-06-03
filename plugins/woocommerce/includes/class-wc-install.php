@@ -10,6 +10,7 @@ use Automattic\Jetpack\Constants;
 use Automattic\WooCommerce\Admin\API\Reports\Orders\Stats\DataStore;
 use Automattic\WooCommerce\Enums\ProductType;
 use Automattic\WooCommerce\Internal\Admin\EmailImprovements\EmailImprovements;
+use Automattic\WooCommerce\Internal\Caches\ProductCacheController;
 use Automattic\WooCommerce\Internal\TransientFiles\TransientFilesEngine;
 use Automattic\WooCommerce\Internal\DataStores\Orders\{ CustomOrdersTableController, DataSynchronizer, OrdersTableDataStore };
 use Automattic\WooCommerce\Internal\DataStores\StockNotifications\StockNotificationsDataStore;
@@ -326,11 +327,13 @@ class WC_Install {
 		),
 		'10.8.0'   => array(
 			'wc_update_1080_migrate_analytics_import_option',
-			'wc_update_1080_slim_orders_meta_key_index',
 			'wc_update_1080_backfill_email_template_sync_meta',
 		),
-		'10.8.0-1' => array(
-			'wc_update_1080_create_review_order_page',
+		'10.8.0-2' => array(
+			'wc_update_10802_restore_orders_meta_key_value_index',
+		),
+		'10.9.0'   => array(
+			'wc_update_1090_remove_task_list_reminder_bar_hidden_option',
 		),
 	);
 
@@ -372,6 +375,7 @@ class WC_Install {
 		add_action( 'woocommerce_newly_installed', array( __CLASS__, 'enable_email_improvements_for_newly_installed' ), 20 );
 		add_action( 'woocommerce_newly_installed', array( __CLASS__, 'enable_customer_stock_notifications_signups' ), 20 );
 		add_action( 'woocommerce_newly_installed', array( __CLASS__, 'enable_analytics_scheduled_import' ), 20 );
+		add_action( 'woocommerce_newly_installed', array( __CLASS__, 'enable_product_instance_caching_for_newly_installed' ), 20 );
 		add_action( 'woocommerce_updated', array( __CLASS__, 'enable_email_improvements_for_existing_merchants' ), 20 );
 		add_action( 'woocommerce_run_update_callback', array( __CLASS__, 'run_update_callback' ) );
 		add_action( 'woocommerce_update_db_to_current_version', array( __CLASS__, 'update_db_version' ) );
@@ -582,7 +586,8 @@ class WC_Install {
 	 * @return void
 	 */
 	public static function install_actions() {
-		if ( ! empty( $_GET['do_update_woocommerce'] ) ) { // WPCS: input var ok.
+		if ( ! empty( $_GET['do_update_woocommerce'] ) ) {
+			// WPCS: input var ok.
 			check_admin_referer( 'wc_db_update', 'wc_db_update_nonce' );
 			wc_get_logger()->info( 'Manual database update triggered.', array( 'source' => 'wc-updater' ) );
 			self::update();
@@ -605,7 +610,8 @@ class WC_Install {
 				}
 
 				$return_url = esc_url_raw( wp_unslash( $return_url ) );
-				wp_safe_redirect( $return_url ); // WPCS: input var ok.
+				wp_safe_redirect( $return_url );
+				// WPCS: input var ok.
 				exit;
 			}
 		}
@@ -1156,11 +1162,6 @@ class WC_Install {
 					'title'   => _x( 'My account', 'Page title', 'woocommerce' ),
 					'content' => '<!-- wp:shortcode -->[' . $my_account_shortcode . ']<!-- /wp:shortcode -->',
 				),
-				'review_order'   => array(
-					'name'    => _x( 'review-order', 'Page slug', 'woocommerce' ),
-					'title'   => _x( 'Review your order', 'Page title', 'woocommerce' ),
-					'content' => '<!-- wp:shortcode -->[woocommerce_review_order]<!-- /wp:shortcode -->',
-				),
 				'refund_returns' => array(
 					'name'        => _x( 'refund_returns', 'Page slug', 'woocommerce' ),
 					'title'       => _x( 'Refund and Returns Policy', 'Page title', 'woocommerce' ),
@@ -1307,6 +1308,21 @@ class WC_Install {
 	public static function enable_analytics_scheduled_import(): void {
 		// add_option only sets if option doesn't exist, returns false if it already exists.
 		add_option( 'woocommerce_analytics_scheduled_import', 'yes' );
+	}
+
+	/**
+	 * Enable product object caching by default for new shops.
+	 *
+	 * Only newly installed stores get the feature enabled here; existing installs keep the
+	 * opt-in default so their behavior is unchanged on upgrade.
+	 *
+	 * @since 11.0.0
+	 *
+	 * @return void
+	 */
+	public static function enable_product_instance_caching_for_newly_installed(): void {
+		$feature_controller = wc_get_container()->get( FeaturesController::class );
+		$feature_controller->change_feature_enable( ProductCacheController::FEATURE_NAME, true );
 	}
 
 	/**
